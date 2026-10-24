@@ -1,0 +1,14 @@
+on post-fs-data
+    mkdir /cache/bootdiag 0777 system system
+    write /cache/bootdiag/marker_postfsdata "reached"
+    start bootdiag
+
+on property:sys.boot_completed=1
+    write /cache/bootdiag/marker_boot_completed "reached"
+
+service bootdiag /system/bin/sh /system/bin/bootdiag.sh
+    user root
+    group root system
+    seclabel u:r:su:s0
+    disabled
+    oneshot

@@ -1,0 +1,83 @@
+name: Build ROM
+
+# Builds the patched Android 16 system image for the Lenovo TB-X606V from the public LineageOS 23.2 VANILLA GSI (no Google apps).
+# Not included: Dolby apps, Google apps and the Lenovo vendor image.
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a GitHub release with the image
+        type: boolean
+        default: false
+      tag:
+        description: Release tag (used when publishing)
+        default: rom-a16-ci
+  push:
+    tags: ['rom-v*']
+
+env:
+  GSI_URL: https://sourceforge.net/projects/misterztr-gsi/files/LineageOS/Android%2016/LineageOS-23.2-20260524-VANILLA-EXT4-GSI.7z/download
+  GSI_7Z_SHA256: 4eba20225472917923c4ba6f2367ba99babcd4c847b03ddd97c315745c54c2da
+  GSI_IMG: LineageOS-23.2-20260524-VANILLA-EXT4-GSI.img
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y e2fsprogs p7zip-full xz-utils
+          pip install pillow numpy
+
+      - name: Download the GSI
+        run: |
+          curl -L --fail --retry 5 --retry-delay 10 -o gsi.7z "$GSI_URL"
+          echo "$GSI_7Z_SHA256  gsi.7z" | sha256sum -c -
+          7z x -y gsi.7z "$GSI_IMG"
+          rm gsi.7z
+          ls -la "$GSI_IMG"
+
+      - name: Render the galaxy boot animation (optional extra choice)
+        run: python3 rom-tuner/boot-animation/make_galaxy.py galaxy-out
+
+      - name: Build the system image
+        run: |
+          python3 build/build_image.py --gsi "$GSI_IMG" --out system.img \
+            --with-tuner --galaxy galaxy-out/bootanimation.zip --e2fs /sbin
+          rm "$GSI_IMG"
+
+      - name: Compress
+        run: |
+          xz -T0 -6 -k system.img
+          mv system.img.xz system-a16-tb-x606v-vanilla.img.xz
+          sha256sum system-a16-tb-x606v-vanilla.img.xz | tee system-a16-tb-x606v-vanilla.img.xz.sha256
+          ls -la system-a16-tb-x606v-vanilla.img.xz
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: system-a16-tb-x606v-vanilla
+          path: |
+            system-a16-tb-x606v-vanilla.img.xz
+            system-a16-tb-x606v-vanilla.img.xz.sha256
+          retention-days: 14
+          compression-level: 0
+
+      - name: Publish release
+        if: ${{ github.event_name == 'push' || inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: |
+          gh release create "$TAG" system-a16-tb-x606v-vanilla.img.xz system-a16-tb-x606v-vanilla.img.xz.sha256 \
+            --title "Android 16 for TB-X606V ($TAG)" \
+            --notes-file docs/RELEASE_NOTES.md
