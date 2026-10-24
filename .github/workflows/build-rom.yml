@@ -8,7 +8,7 @@ on:
       publish:
         description: Publish a GitHub release with the image
         type: boolean
-        default: false
+        default: true
       tag:
         description: Release tag (used when publishing)
         default: rom-a16-ci
